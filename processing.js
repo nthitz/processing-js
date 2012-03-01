@@ -5492,6 +5492,9 @@
       element.parse(xmlstring);
       return element;
     };
+    
+    
+    var XML = p.XML = p.XMLElement;
 
     ////////////////////////////////////////////////////////////////////////////
     // 2D Matrix
@@ -17664,7 +17667,7 @@
       "textMode", "textSize", "texture", "textureMode", "textWidth", "tint", "toImageData",
       "touchCancel", "touchEnd", "touchMove", "touchStart", "translate",
       "triangle", "trim", "unbinary", "unhex", "updatePixels", "use3DContext",
-      "vertex", "width", "XMLElement", "year", "__contains", "__equals",
+      "vertex", "width", "XMLElement",  "year", "__contains", "__equals",
       "__equalsIgnoreCase", "__frameRate", "__hashCode", "__int_cast",
       "__instanceof", "__keyPressed", "__mousePressed", "__printStackTrace",
       "__replace", "__replaceAll", "__replaceFirst", "__toCharArray", "__split",
