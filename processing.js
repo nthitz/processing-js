@@ -1,4 +1,3 @@
-
 (function(window, document, Math, undef) {
 
   var nop = function(){};
@@ -1519,9 +1518,6 @@
   defaultScope.defineProperty(defaultScope, 'screenHeight',
     { get: function() { return window.innerHeight; } });
 
-  defaultScope.defineProperty(defaultScope, 'online',
-    { get: function() { return true; } });
-
   // Manage multiple Processing instances
   var processingInstances = [];
   var processingInstanceIds = {};
@@ -1559,6 +1555,7 @@
     var cfmFont = pfont.getCSSDefinition(emQuad+"px", "normal"),
         ctx = canvas.getContext("2d");
     ctx.font = cfmFont;
+    pfont.context2d = ctx;
 
     // Size the canvas using a string with common max-ascent and max-descent letters.
     // Changing the canvas dimensions resets the context, so we must reset the font.
@@ -1619,16 +1616,9 @@
       }
     }
     document.body.removeChild(leadDiv);
-
-    // if we're caching, cache the context used for this pfont
-    if (pfont.caching) {
-      return ctx;
-    }
   }
 
-  /**
-   * Constructor for a system or from-file (non-SVG) font.
-   */
+  // Defines system (non-SVG) font.
   function PFont(name, size) {
     // according to the P5 API, new PFont() is legal (albeit completely useless)
     if (name === undef) {
@@ -1686,22 +1676,15 @@
     }
     // Calculate the ascent/descent/leading value based on
     // how the browser renders this font.
-    this.context2d = computeFontMetrics(this);
+    this.context2d = null;
+    computeFontMetrics(this);
     this.css = this.getCSSDefinition();
-    if (this.context2d) {
-      this.context2d.font = this.css;
-    }
+    this.context2d.font = this.css;
   }
-  
-  /**
-   * regulates whether or not we're caching the canvas
-   * 2d context for quick text width computation. 
-   */
-  PFont.prototype.caching = true;
 
   /**
-   * This function generates the CSS "font" string for this PFont
-   */
+  * This function generates the CSS "font" string for this PFont
+  */
   PFont.prototype.getCSSDefinition = function(fontSize, lineHeight) {
     if(fontSize===undef) {
       fontSize = this.size + "px";
@@ -1715,89 +1698,44 @@
   };
 
   /**
-   * Rely on the cached context2d measureText function.
-   */
+  * We cannot rely on there being a 2d context available,
+  * because we support OPENGL sketches, and canvas3d has
+  * no "measureText" function in the API.
+  */
   PFont.prototype.measureTextWidth = function(string) {
     return this.context2d.measureText(string).width;
   };
 
   /**
-   * FALLBACK FUNCTION -- replaces Pfont.prototype.measureTextWidth
-   * when the font cache becomes too large. This contructs a new
-   * canvas 2d context object for calling measureText on.
-   */
-  PFont.prototype.measureTextWidthFallback = function(string) {
-    var canvas = document.createElement("canvas"),
-        ctx = canvas.getContext("2d");
-    ctx.font = this.css;
-    return ctx.measureText(string).width;
-  };
+  * Global "loaded fonts" list, internal to PFont
+  */
+  PFont.PFontCache = {};
 
   /**
-   * Global "loaded fonts" list, internal to PFont
-   */
-  PFont.PFontCache = { length: 0 };
-
-  /**
-   * This function acts as single access point for getting and caching
-   * fonts across all sketches handled by an instance of Processing.js
-   */
+  * This function acts as single access point for getting and caching
+  * fonts across all sketches handled by an instance of Processing.js
+  */
   PFont.get = function(fontName, fontSize) {
-    // round fontSize to one decimal point
-    fontSize = ((fontSize*10)+0.5|0)/10; 
-    var cache = PFont.PFontCache,
-        idx = fontName+"/"+fontSize;
+    var cache = PFont.PFontCache;
+    var idx = fontName+"/"+fontSize;
     if (!cache[idx]) {
       cache[idx] = new PFont(fontName, fontSize);
-      cache.length++;
-
-      // FALLBACK FUNCTIONALITY 1:
-      // If the cache has become large, switch over from full caching
-      // to caching only the static metrics for each new font request.
-      if (cache.length === 50) {
-        PFont.prototype.measureTextWidth = PFont.prototype.measureTextWidthFallback;
-        PFont.prototype.caching = false;
-        // clear contexts stored for each cached font
-        var entry;
-        for (entry in cache) {
-          if (entry !== "length") {
-            cache[entry].context2d = null;
-          }
-        }
-        return new PFont(fontName, fontSize);
-      }
-
-      // FALLBACK FUNCTIONALITY 2:
-      // If the cache has become too large, switch off font caching entirely.
-      if (cache.length === 400) {
-        PFont.PFontCache = {};
-        PFont.get = PFont.getFallback;
-        return new PFont(fontName, fontSize);
-      }
     }
     return cache[idx];
   };
-  
-  /**
-   * FALLBACK FUNCTION -- replaces PFont.get when the font cache
-   * becomes too large. This function bypasses font caching entirely.
-   */
-  PFont.getFallback = function(fontName, fontSize) {
-    return new PFont(fontName, fontSize);
-  };
 
   /**
-   * Lists all standard fonts. Due to browser limitations, this list is
-   * not the system font list, like in P5, but the CSS "genre" list.
-   */
+  * Lists all standard fonts. Due to browser limitations, this list is
+  * not the system font list, like in P5, but the CSS "genre" list.
+  */
   PFont.list = function() {
     return ["sans-serif", "serif", "monospace", "fantasy", "cursive"];
   };
 
   /**
-   * Loading external fonts through @font-face rules is handled by PFont,
-   * to ensure fonts loaded in this way are globally available.
-   */
+  * Loading external fonts through @font-face rules is handled by PFont,
+  * to ensure fonts loaded in this way are globally available.
+  */
   PFont.preloading = {
     // template element used to compare font sizes
     template: {},
@@ -1909,6 +1847,7 @@
       this.fontList.push(element);
     }
   };
+
 
   // add to the default scope
   defaultScope.PFont = PFont;
@@ -3517,7 +3456,7 @@
       else if (arguments.length === 2) {
         if (typeof arguments[1] === 'string') {
           if (arguments[1].indexOf(".svg") > -1) { //its a filename
-            this.element = new p.XMLElement(p, arguments[1]);
+            this.element = new p.XMLElement(null, arguments[1]);
             // set values to their defaults according to the SVG spec
             this.vertexCodes         = [];
             this.vertices            = [];
@@ -4744,7 +4683,7 @@
      * @param {String} systemID  the system ID of the XML data where the element starts
      * @param {Integer }lineNr   the line in the XML data where the element starts
      */
-    var XMLElement = p.XMLElement = function(selector, uri, sysid, line) {
+    var XMLElement = p.XMLElement = function() {
       this.attributes = [];
       this.children   = [];
       this.fullName   = null;
@@ -4756,22 +4695,27 @@
       this.systemID   = "";
       this.type = "ELEMENT";
 
-      if (selector) {
-        if (typeof selector === "string") {
-          if (uri === undef && selector.indexOf("<")>-1) {
-            // load XML from text string
-            this.parse(selector);
-          } else {
-            // XMLElement(fullname, namespace, sysid, line) format
-            this.fullName = selector;
-            this.namespace = uri;
-            this.systemId = sysid;
-            this.lineNr = line;
-          }
+      if (arguments.length === 4) {
+        this.fullName   = arguments[0] || "";
+        if (arguments[1]) {
+          this.name = arguments[1];
         } else {
-          // XMLElement(this,file) format
-          this.parse(uri);
+          var index = this.fullName.indexOf(':');
+          if (index >= 0) {
+            this.name = this.fullName.substring(index + 1);
+          } else {
+            this.name = this.fullName;
+          }
         }
+        this.namespace = arguments[1];
+        this.lineNr    = arguments[3];
+        this.systemID  = arguments[2];
+      }
+      else if ((arguments.length === 2 && arguments[1].indexOf(".") > -1) ) {
+        // filename or svg xml element
+        this.parse(arguments[arguments.length -1]);
+      } else if (arguments.length === 1 && typeof arguments[0] === "string"){
+        this.parse(arguments[0]);
       }
     };
     /**
@@ -4822,7 +4766,7 @@
        *
        * @return {XMLElement} the new element and its children elements
        */
-      parseChildrenRecursive: function (parent, elementpath){
+      parseChildrenRecursive: function (parent , elementpath){
         var xmlelement,
           xmlattribute,
           tmpattrib,
@@ -4833,7 +4777,7 @@
           this.name     = elementpath.nodeName;
           xmlelement    = this;
         } else { // this element has a parent
-          xmlelement         = new XMLElement(elementpath.nodeName);
+          xmlelement         = new XMLElement(elementpath.localName, elementpath.nodeName, "", "");
           xmlelement.parent  = parent;
         }
 
@@ -4875,11 +4819,11 @@
        * @param {String} systemID   the system ID of the XML data where the element starts
        * @param {int} lineNr    the line in the XML data where the element starts
        */
-      createElement: function (fullname, namespaceuri, sysid, line) {
-        if (sysid === undef) {
-          return new XMLElement(fullname, namespaceuri);
+      createElement: function () {
+        if (arguments.length === 2) {
+          return new XMLElement(arguments[0], arguments[1], null, null);
         }
-        return new XMLElement(fullname, namespaceuri, sysid, line);
+        return new XMLElement(arguments[0], arguments[1], arguments[2], arguments[3]);
       },
       /**
        * @member XMLElement
@@ -4928,7 +4872,7 @@
           return false;
         }
         var i, j;
-        if (this.fullName !== other.fullName) { return false; }
+        if (this.name !== other.getLocalName()) { return false; }
         if (this.attributes.length !== other.getAttributeCount()) { return false; }
         // attributes may be ordered differently
         if (this.attributes.length !== other.attributes.length) { return false; }
@@ -5135,19 +5079,19 @@
        *
        * @return {XMLElement} the element
        */
-      getChild: function (selector) {
-        if (typeof selector === "number") {
-          return this.children[selector];
+      getChild: function (){
+        if (typeof arguments[0]  === "number") {
+          return this.children[arguments[0]];
         }
-        if (selector.indexOf('/') !== -1) {
-          // path traversal is required
-          return this.getChildRecursive(selector.split("/"), 0);
+        if (arguments[0].indexOf('/') !== -1) { // path was given
+          this.getChildRecursive(arguments[0].split("/"), 0);
+          return null;
         }
         var kid, kidName;
         for (var i = 0, j = this.getChildCount(); i < j; i++) {
           kid = this.getChild(i);
           kidName = kid.getName();
-          if (kidName !== null && kidName === selector) {
+          if (kidName !== null && kidName === arguments[0]) {
               return kid;
           }
         }
@@ -5168,7 +5112,7 @@
        */
       getChildren: function(){
         if (arguments.length === 1) {
-          if (typeof arguments[0] === "number") {
+          if (typeof arguments[0]  === "number") {
             return this.getChild( arguments[0]);
           }
           if (arguments[0].indexOf('/') !== -1) { // path was given
@@ -5209,17 +5153,16 @@
        * @return {XMLElement} matching element or null if no match
        */
       getChildRecursive: function (items, offset) {
-        // terminating clause: we are the requested candidate
-        if (offset === items.length) {
-          return this;
-        }
-        // continuation clause
-        var kid, kidName, matchName = items[offset];
+        var kid, kidName;
         for(var i = 0, j = this.getChildCount(); i < j; i++) {
             kid = this.getChild(i);
             kidName = kid.getName();
-            if (kidName !== null && kidName === matchName) {
-              return kid.getChildRecursive(items, offset+1);
+            if (kidName !== null && kidName === items[offset]) {
+              if (offset === items.length-1) {
+                return kid;
+              }
+              offset += 1;
+              return kid.getChildRecursive(items, offset);
             }
         }
         return null;
@@ -5455,7 +5398,7 @@
         if(this.type==="TEXT") { return this.content; }
 
         // real XMLElements
-        var tagstring = this.fullName;
+        var tagstring = (this.namespace !== "" && this.namespace !== this.name ? this.namespace + ":" : "") + this.name;
         var xmlstring =  "<" + tagstring;
         var a,c;
 
@@ -5492,6 +5435,8 @@
       element.parse(xmlstring);
       return element;
     };
+    var XML = p.XML = p.XMLElement;
+    
 
     ////////////////////////////////////////////////////////////////////////////
     // 2D Matrix
@@ -6573,33 +6518,36 @@
     * @see trim
     */
     p.splitTokens = function(str, tokens) {
-      if (tokens === undef) {
-        return str.split(/\s+/g);
+      if (arguments.length === 1) {
+        tokens = "\n\t\r\f ";
       }
 
-      var chars = tokens.split(/()/g),
-          buffer = "",
-          len = str.length,
-          i, c,
-          tokenized = [];
+      tokens = "[" + tokens + "]";
 
-      for (i = 0; i < len; i++) {
-        c = str[i];
-        if (chars.indexOf(c) > -1) {
-          if (buffer !== "") {
-            tokenized.push(buffer);
-          }
-          buffer = "";
+      var ary = [];
+      var index = 0;
+      var pos = str.search(tokens);
+
+      while (pos >= 0) {
+        if (pos === 0) {
+          str = str.substring(1);
         } else {
-          buffer += c;
+          ary[index] = str.substring(0, pos);
+          index++;
+          str = str.substring(pos);
         }
+        pos = str.search(tokens);
       }
 
-      if (buffer !== "") {
-        tokenized.push(buffer);
+      if (str.length > 0) {
+        ary[index] = str;
       }
 
-      return tokenized;
+      if (ary.length === 0) {
+        ary = undef;
+      }
+
+      return ary;
     };
 
     /**
@@ -8010,7 +7958,7 @@
         doStroke = oldState.doStroke;
         currentStrokeColor = oldState.currentStrokeColor;
         curTint = oldState.curTint;
-        curRectMode = oldState.curRectMode;
+        curRectMode = oldState.curRectmode;
         curColorMode = oldState.curColorMode;
         colorModeX = oldState.colorModeX;
         colorModeZ = oldState.colorModeZ;
@@ -10425,7 +10373,7 @@
       view.apply(modelView.array());
       view.mult(pos, pos);
 
-      // Instead of calling p.color, we do the calculations ourselves to
+      // Instead of calling p.color, we do the calculations ourselves to 
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10490,7 +10438,7 @@
         mvm[2] * nx + mvm[6] * ny + mvm[10] * nz
       ];
 
-      // Instead of calling p.color, we do the calculations ourselves to
+      // Instead of calling p.color, we do the calculations ourselves to 
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10560,7 +10508,7 @@
 
     Drawing3D.prototype.lightSpecular = function(r, g, b) {
 
-      // Instead of calling p.color, we do the calculations ourselves to
+      // Instead of calling p.color, we do the calculations ourselves to 
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10633,7 +10581,7 @@
       view.apply(modelView.array());
       view.mult(pos, pos);
 
-      // Instead of calling p.color, we do the calculations ourselves to
+      // Instead of calling p.color, we do the calculations ourselves to 
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10723,7 +10671,7 @@
           mvm[2] * nx + mvm[6] * ny + mvm[10] * nz
       ];
 
-      // Instead of calling p.color, we do the calculations ourselves to
+      // Instead of calling p.color, we do the calculations ourselves to 
       // reduce property lookups.
       var col = color$4(r, g, b, 0);
       var normalizedCol = [ ((col & PConstants.RED_MASK) >>> 16) / 255,
@@ -10819,7 +10767,7 @@
      */
     p.camera = function(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ) {
       if (eyeX === undef) {
-        // Workaround if createGraphics is used.
+        // Workaround if createGraphics is used. 
         cameraX = p.width / 2;
         cameraY = p.height / 2;
         cameraZ = cameraY / Math.tan(cameraFOV / 2);
@@ -13396,13 +13344,13 @@
         start = 0;
         stop = PConstants.TWO_PI;
       }
-      var hr = width / 2,
-          vr = height / 2,
-          centerX = x + hr,
-          centerY = y + vr,
-          startLUT = 0 | (0.5 + start * p.RAD_TO_DEG * 2),
-          stopLUT  = 0 | (0.5 + stop * p.RAD_TO_DEG * 2),
-          i, j;
+      var hr = width / 2;
+      var vr = height / 2;
+      var centerX = x + hr;
+      var centerY = y + vr;
+      var startLUT = 0 | (-0.5 + start * p.RAD_TO_DEG * 2);
+      var stopLUT  = 0 | (0.5 + stop * p.RAD_TO_DEG * 2);
+      var i, j;
       if (doFill) {
         // shut off stroke for a minute
         var savedStroke = doStroke;
@@ -13748,7 +13696,7 @@
         br = tl;
         bl = tl;
       }
-      var halfWidth = width / 2,
+      var halfWidth = width / 2, 
           halfHeight = height / 2;
       if (tl > halfWidth || tl > halfHeight) {
         tl = Math.min(halfWidth, halfHeight);
@@ -14609,7 +14557,7 @@
           return this.imageData;
         }
 
-        var canvasData = getCanvasData(this.sourceImg);
+        var canvasData = getCanvasData(this.imageData);
         return canvasData.context.getImageData(0, 0, this.width, this.height);
       },
 
@@ -17057,7 +17005,6 @@
     Drawing3D.prototype.$init = function() {
       // For ref/perf test compatibility until those are fixed
       p.use3DContext = true;
-      p.disableContextMenu();
     };
 
     DrawingShared.prototype.$ensureContext = function() {
@@ -17339,6 +17286,11 @@
     //////////////////////////////////////////////////////////////////////////
     // Keyboard Events
     //////////////////////////////////////////////////////////////////////////
+
+    // Get the DOM element if string was passed
+    if (typeof curElement === "string") {
+      curElement = document.getElementById(curElement);
+    }
 
     // In order to catch key events in a canvas, it needs to be "specially focusable",
     // by assigning it a tabindex. If no tabindex is specified on-page, set this to 0.
@@ -17664,7 +17616,7 @@
       "textMode", "textSize", "texture", "textureMode", "textWidth", "tint", "toImageData",
       "touchCancel", "touchEnd", "touchMove", "touchStart", "translate",
       "triangle", "trim", "unbinary", "unhex", "updatePixels", "use3DContext",
-      "vertex", "width", "XMLElement", "year", "__contains", "__equals",
+      "vertex", "width", "XMLElement","XML", "year", "__contains", "__equals",
       "__equalsIgnoreCase", "__frameRate", "__hashCode", "__int_cast",
       "__instanceof", "__keyPressed", "__mousePressed", "__printStackTrace",
       "__replace", "__replaceAll", "__replaceFirst", "__toCharArray", "__split",
@@ -17808,18 +17760,6 @@
       // kill comments
       return comment !== "" ? " " : "\n";
     });
-
-    // protect character codes from namespace collision
-    codeWoStrings = codeWoStrings.replace(/__x([0-9A-F]{4})/g, function(all, hexCode) {
-      // $ = __x0024
-      // _ = __x005F
-      // this protects existing character codes from conversion
-      // __x0024 = __x005F_x0024
-      return "__x005F_x" + hexCode;
-    });
-
-    // convert dollar sign to character code
-    codeWoStrings = codeWoStrings.replace(/\$/g, "__x0024");
 
     // removes generics
     var genericsWereRemoved;
@@ -19233,11 +19173,6 @@
     // remove empty extra lines with space
     redendered = redendered.replace(/\s*\n(?:[\t ]*\n)+/g, "\n\n");
 
-    // convert character codes to characters
-    redendered = redendered.replace(/__x([0-9A-F]{4})/g, function(all, hexCode) {
-      return String.fromCharCode(parseInt(hexCode,16));
-    });
-
     return injectStrings(redendered, strings);
   }// Parser ends
 
@@ -19310,7 +19245,7 @@
 //#endif
 
   // tinylog lite JavaScript library
-  // https://github.com/eligrey/tinylog
+  // http://purl.eligrey.com/tinylog/lite
   /*global tinylog,print*/
   var tinylogLite = (function() {
     "use strict";
@@ -19814,18 +19749,9 @@
     }
 
     // also process all <script>-indicated sketches, if there are any
-    var s, last, source, instance,
-        nodelist = document.getElementsByTagName('script'),
-        scripts=[];
-
-    // snapshot the DOM, as the nodelist is only a DOM view, and is
-    // updated instantly when a script element is added or removed.
-    for (s = nodelist.length - 1; s >= 0; s--) {
-      scripts.push(nodelist[s]);
-    }
-
-    // iterate over all script elements to see if they contain Processing code
-    for (s = 0, last = scripts.length; s < last; s++) {
+    var scripts = document.getElementsByTagName('script');
+    var s, source, instance;
+    for (s = 0; s < scripts.length; s++) {
       var script = scripts[s];
       if (!script.getAttribute) {
         continue;
