@@ -5495,7 +5495,9 @@
     
     
     var XML = p.XML = p.XMLElement;
-
+    XML.prototype.getString = p.XMLElement.getStringAttribute;
+    XML.prototype.getFloat = p.XMLElement.getFloatAttribute;
+    XML.prototype.getInt = p.XMLELement.getIntAttribute;
     ////////////////////////////////////////////////////////////////////////////
     // 2D Matrix
     ////////////////////////////////////////////////////////////////////////////
